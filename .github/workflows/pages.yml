@@ -1,0 +1,58 @@
+name: Validate site and manually deploy beta
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_preview:
+        description: "Explicitly publish the safe, noindex beta from site/ to this repository's Pages URL"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Regression-test public publication guard
+        run: python3 .github/scripts/validate_site.py --self-test
+      - name: Validate available site files without indexing
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish_preview }}" = "true" ]; then
+            python3 .github/scripts/validate_site.py --require-site
+          else
+            python3 .github/scripts/validate_site.py --if-present
+          fi
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_preview == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Re-check the exact publication folder
+        run: python3 .github/scripts/validate_site.py --require-site
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload website files only
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/
+          include-hidden-files: true
+      - name: Publish noindex beta at this repository's Pages preview URL
+        id: deployment
+        uses: actions/deploy-pages@v4
